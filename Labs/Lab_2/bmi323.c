@@ -1,6 +1,7 @@
 #include "bmi323.h"
 #include "i2c.h"
 #include "main.h"
+#include <stdint.h>
 
 // ACC_CONF / GYR_CONF bit fields.
 // TODO (part 3): fill these in from the ACC_CONF and GYR_CONF register
@@ -50,7 +51,7 @@ int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
 
   for(uint8_t i = 0;i < count; i++){
     low_byte = data[2 + 2 * i];
-    high_byte = data[2 + 2 * (i+1)];
+    high_byte = data[2 + 2 * i + 1];
     high_byte = high_byte << 8;
     values[i] = low_byte | high_byte;
   }
@@ -65,6 +66,10 @@ int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
 int bmi323_write_reg(uint8_t reg, uint16_t value) {
   // TODO (part 3): split value into 2 bytes, low byte first, and send them
   // with i2c_write_reg
+  uint8_t high_byte = value;
+  uint8_t low_byte = value >> 8;
+  uint8_t data[2] = [low_byte, high_byte];
+  int i2c_write_reg(bmi323_addr,reg, data,sizeof(data))
   return -1;
 }
 
