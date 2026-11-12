@@ -32,39 +32,39 @@ uint8_t bmi323_addr;
 int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
   // Every I2C read returns 2 dummy bytes first, then each register low byte
   // first
-  uint8_t data[2 + 2 * MAX_READ];
-  result = i2c_read_reg(BMI323_ADDR_SDO_LOW,reg,data,(2+2 * MAX_READ));
+  
 
-  uint16_t low_bytes;
-  uint16_t high_bytes;
-
-  if (result == -1){
-    return -1;
-  } else if (result){
-    for(uint8_t = 0;i < count; i++){
-      if (i < 2){
-        continue;
-      }
-
-      if(i == 2){
-        low_bytes = values[i];
-      } else if (i==3){
-        high_bytes = values[i];
-        values[i] = low_bytes + high_bytes;
-      }
-
-
-    }
-  }
   if (count > MAX_READ) {
     return -1;
   }
 
+  uint8_t data[2 + 2 * MAX_READ];
+  uint8_t result = i2c_read_reg(BMI323_ADDR_SDO_LOW,reg,data,(2+2 * count));
+
+  uint16_t low_byte;
+  uint16_t high_byte;
+
+  if (result != 0){
+    return -1;
+  }
+
+  for(uint8_t i = 0;i < sizeof(data); i++){
+    if(i<2){
+      continue;
+    }
+    if(i % 2 == 0){
+      low_byte = data[2 + 2 * i];
+      high_byte = data[2 + 2 * (i+1)];
+      high_byte = high_byte >> 8;
+      values[i] = low_byte | high_byte;
+    } 
+  }
+
+  
   // TODO (part 2): read 2 + 2 * count bytes starting at reg with
   // i2c_read_reg (return -1 if it fails), skip the 2 dummy bytes, and combine
   // each pair of bytes into values[i]
-  (void)data;
-  return -1;
+  return 0;
 }
 
 int bmi323_write_reg(uint8_t reg, uint16_t value) {
