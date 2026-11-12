@@ -22,14 +22,20 @@ float lab_2_roll, lab_2_pitch;
 // Probes every valid 7-bit address and records the ones that ACK
 static void scan_bus(void) {
   lab_2_found_count = 0;
-
+    for(uint8_t address = 0x08, address <= 0x77, address++){
+      if (i2c_probe(address) == 0){
+        if (lab_2_found_count < sizeof(lab_2_found)) {
+            lab_2_found[lab_2_found_count] = address;
+            lab_2_found_count++;
+        }
+      }
+    }
   // TODO (part 1): valid 7-bit addresses go from 0x08 to 0x77. Probe each
   // one with i2c_probe, and add the ones that answer to lab_2_found (don't
   // overflow it).
 
   printf("I2C: scan done, %u found\r\n", lab_2_found_count);
 }
-
 // ---------------------------------------------------------------- part 2
 
 static void read_chip_id(void) {
