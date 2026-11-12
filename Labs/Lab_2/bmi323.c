@@ -39,7 +39,7 @@ int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
   }
 
   uint8_t data[2 + 2 * MAX_READ];
-  uint8_t result = i2c_read_reg(BMI323_ADDR_SDO_LOW,reg,data,(2+2 * count));
+  int result = i2c_read_reg(bmi323_addr,reg,data,(2+2 * count));
 
   uint16_t low_byte;
   uint16_t high_byte;
@@ -48,16 +48,11 @@ int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
     return -1;
   }
 
-  for(uint8_t i = 0;i < sizeof(data); i++){
-    if(i<2){
-      continue;
-    }
-    if(i % 2 == 0){
-      low_byte = data[2 + 2 * i];
-      high_byte = data[2 + 2 * (i+1)];
-      high_byte = high_byte >> 8;
-      values[i] = low_byte | high_byte;
-    } 
+  for(uint8_t i = 0;i < count; i++){
+    low_byte = data[2 + 2 * i];
+    high_byte = data[2 + 2 * (i+1)];
+    high_byte = high_byte << 8;
+    values[i] = low_byte | high_byte;
   }
 
   
