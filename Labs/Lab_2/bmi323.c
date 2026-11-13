@@ -66,11 +66,14 @@ int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
 int bmi323_write_reg(uint8_t reg, uint16_t value) {
   // TODO (part 3): split value into 2 bytes, low byte first, and send them
   // with i2c_write_reg
-  uint8_t high_byte = value;
+  uint8_t low = value;
   uint8_t low_byte = value >> 8;
-  uint8_t data[2] = [low_byte, high_byte];
-  int i2c_write_reg(bmi323_addr,reg, data,sizeof(data))
-  return -1;
+  uint8_t data[2] = {low_byte, high_byte};
+  int result = i2c_write_reg(bmi323_addr,reg, data,sizeof(data));
+  if(result != 0){
+    return -1;
+  }
+  return 0;
 }
 
 // Tries both possible addresses and keeps the one with the right chip ID

@@ -3,6 +3,7 @@
 #include "can_lib.h"
 #include "main.h"
 #include "mcp3561.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -40,6 +41,15 @@ int can_setup(uint32_t bitrate, uint32_t mode, uint32_t std_filters) {
   //
   // TODO (part 1): set the prescaler that gives `bitrate`. If no whole
   // number prescaler gives it exactly, return -1 instead.
+
+  uint32_t tPerBit = 1 + TSEG1 + TSEG2;
+
+  uint32_t prescaler = FDCAN_CLOCK_HZ / (bitrate * tPerBit);
+
+  if ((FDCAN_CLOCKHZ % (bitrate * tPerBit)) != 0){
+    return -1;
+  }
+
   hfdcan1.Init.NominalPrescaler = 16; // what CubeMX set, what bitrate is it?
   hfdcan1.Init.NominalTimeSeg1 = TSEG1;
   hfdcan1.Init.NominalTimeSeg2 = TSEG2;
