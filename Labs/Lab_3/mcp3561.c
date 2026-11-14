@@ -27,17 +27,25 @@ int mcp3561_transfer(uint8_t command, const uint8_t *tx, uint8_t *rx,
     return -1;
   }
 
-  // TODO (part 1):
-  //  1. copy tx (if it isn't NULL) into tx_buf after the command byte
-  //  2. send tx_buf and receive into rx_buf at the same time with
-  //     HAL_SPI_TransmitReceive (timeout 10 ms). NSS (PA4) is driven by the
-  //     SPI peripheral, low for the whole transfer, so you don't touch it.
-  //  3. save the STATUS byte into *status and the data bytes into rx (skip
-  //     either one if it's NULL)
-  //  4. return 0 if the address bits in STATUS match, -1 otherwise
-  (void)tx_buf;
-  (void)rx_buf;
-  return -1;
+  // Data bytes go after the command byte (zeros if tx is NULL)
+  if (tx != NULL) {
+    memcpy(&tx_buf[1], tx, len);
+  }
+
+  // NSS (PA4) is driven by the SPI peripheral for the whole transfer
+  if (HAL_SPI_TransmitReceive(&hspi1, tx_buf, rx_buf, 1 + len, 10) != HAL_OK) {
+    return -1;
+  }
+
+  // STATUS comes back while the command byte goes out
+  if (status != NULL) {
+    *status = rx_buf[0];
+  }
+  if (rx != NULL) {
+    memcpy(rx, &rx_buf[1], len);
+  }
+
+  return (STATUS_ADDR(rx_buf[0]) == STATUS_ADDR_EXPECTED) ? 0 : -1;
 }
 
 static int mcp3561_read_regs(uint8_t reg, uint8_t *data, uint8_t len) {
@@ -55,17 +63,14 @@ int mcp3561_init(mcp3561_osr_t osr) {
   uint8_t readback[MAX_DATA];
 
   // CONFIG0..MUX, written in one go.
-  // TODO (part 2): work out each byte from the register map in the datasheet.
-  // See the table in the handout for the settings you need.
   const uint8_t config[MAX_DATA] = {
-      0x00, // CONFIG0: internal VREF, internal clock, conversion mode
-      0x00, // CONFIG1: no prescaler, oversampling ratio = osr
-      0x8B, // CONFIG2: boost 1x, gain 1x, auto-zero off (defaults, given)
-      0x00, // CONFIG3: continuous conversions, 24-bit data
-      0x00, // IRQ: IRQ pin push-pull idle high, fast commands on
-      0x00, // MUX: VIN+ = CH0, VIN- = AGND
+      0b11100011, // CONFIG0: internal VREF, not shutdown, internal clock (no output), no CS bias, conversion mode
+      (uint8_t)(osr << 2), // CONFIG1: prescaler /1, OSR in bits 5:2
+      0x8B,       // CONFIG2: boost 1x, gain 1x, auto-zero off (defaults, given)
+      0b11000000, // CONFIG3: continuous conversions, 24-bit data, CRC off, cal off
+      0b00001010, // IRQ: IRQ pin, push-pull idle high, fast commands on, start interrupt off
+      0b00001000, // MUX: VIN+ = CH0, VIN- = AGND
   };
-  (void)osr;
 
   if (mcp3561_transfer(MCP3561_COMMAND(MCP3561_FAST_RESET, MCP3561_FAST_COMMAND),
                        NULL, NULL, 0, NULL) != 0) {
@@ -93,9 +98,8 @@ int mcp3561_init(mcp3561_osr_t osr) {
 }
 
 int mcp3561_data_ready(void) {
-  // TODO (part 3): read the ADC_IRQ pin. It goes low when a new result is
-  // ready.
-  return 0;
+  // ADC_IRQ (PB4) is active low: low means a new result is ready
+  return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_4) == GPIO_PIN_RESET;
 }
 
 int mcp3561_read(mcp3561_reading_t *reading) {
@@ -105,10 +109,13 @@ int mcp3561_read(mcp3561_reading_t *reading) {
     return -1;
   }
 
-  // TODO (part 3): data[0..2] is a 24-bit two's complement number, MSB
-  // first. Put it together into reading->code (an int32_t, so negative
-  // values have to be sign-extended by hand), then convert to millivolts. A
-  // code of FULL_SCALE means the input equals the reference voltage.
-  (void)reading;
+  // 24-bit two's complement, MSB first
+  int32_t code = ((int32_t)data[0] << 16) | ((int32_t)data[1] << 8) | data[2];
+  if (code & 0x800000) {
+    code |= 0xFF000000; // negative: sign-extend from bit 23
+  }
+
+  reading->code = code;
+  reading->millivolts = (float)code * MCP3561_VREF_MV / FULL_SCALE;
   return 0;
 }

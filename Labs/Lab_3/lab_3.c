@@ -84,6 +84,7 @@ static void stream(void) {
 
 static void measure_noise(lab_3_noise_t *result) {
   float sum = 0, sum_sq = 0;
+  float ref = 0; // first sample; we sum (x - ref) so the floats stay small
   uint32_t start;
 
   if (mcp3561_init(result->osr) != 0) {
@@ -96,13 +97,24 @@ static void measure_noise(lab_3_noise_t *result) {
     if (read_next(&lab_3_adc) != 0) {
       halt("no new conversion");
     }
-    // TODO (part 4): add this sample to sum and its square to sum_sq
+    float x = lab_3_adc.millivolts;
+    if (i == 0) {
+      ref = x;
+    }
+    float d = x - ref;
+    sum += d;
+    sum_sq += d * d;
   }
 
-  // TODO (part 4): fill in result->mean_mv and result->std_uv (in
-  // microvolts!). std = sqrt(E[x^2] - E[x]^2), where E[] is the average.
-  (void)sum;
-  (void)sum_sq;
+  // Shifting every sample by ref doesn't change the std, and keeps
+  // E[x^2] - E[x]^2 from losing all its precision in a 32-bit float.
+  float avg = sum / NOISE_SAMPLES;
+  float var = sum_sq / NOISE_SAMPLES - avg * avg;
+  if (var < 0) {
+    var = 0; // rounding can push it slightly negative
+  }
+  result->mean_mv = ref + avg;
+  result->std_uv = sqrtf(var) * 1000.0f; // mV to uV
   result->sample_ms = (float)(HAL_GetTick() - start) / NOISE_SAMPLES;
 }
 
@@ -125,10 +137,12 @@ static void force_button(void) {
     }
     float delta = fabsf(lab_3_adc.millivolts - lab_3_baseline_mv);
 
-    // TODO (part 5): if not pressed and delta goes over PRESS_DELTA_MV, it's a
-    // new press (count it). If pressed and delta drops under
-    // RELEASE_DELTA_MV, it's released.
-    (void)delta;
+    if (!pressed && delta > PRESS_DELTA_MV) {
+      pressed = 1;
+      lab_3_press_count++; // counted once per press, on the transition only
+    } else if (pressed && delta < RELEASE_DELTA_MV) {
+      pressed = 0;
+    }
 
     HAL_GPIO_WritePin(Status_LED_GPIO_Port, Status_LED_Pin,
                       pressed ? GPIO_PIN_SET : GPIO_PIN_RESET);
