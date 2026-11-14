@@ -2,13 +2,12 @@
 #include "bmi323.h"
 #include "can_lib.h"
 #include "main.h"
-#include "mcp3561.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 // Which part of the lab runs. Change this, rebuild, and flash.
-#define LAB_4_PART 1
+#define LAB_4_PART 4
 
 #define BITRATE 500000
 
@@ -21,6 +20,7 @@
 
 #define TELEMETRY_PERIOD_MS 100
 
+
 extern FDCAN_HandleTypeDef hfdcan1;
 
 lab_4_bus_t lab_4_bus;
@@ -31,26 +31,19 @@ static led_mode_t led_mode = LED_BLINK;
 static uint16_t led_period_ms = 1000;
 
 static bmi323_reading_t imu;
-static mcp3561_reading_t adc;
 static int16_t partner_acc_z_mg;
 
 // ---------------------------------------------------------------- helpers
 
 int can_setup(uint32_t bitrate, uint32_t mode, uint32_t std_filters) {
   // Bitrate = FDCAN_CLOCK_HZ / (prescaler * TQ_PER_BIT)
-  //
-  // TODO (part 1): set the prescaler that gives `bitrate`. If no whole
-  // number prescaler gives it exactly, return -1 instead.
-
-  uint32_t tPerBit = 1 + TSEG1 + TSEG2;
-
-  uint32_t prescaler = FDCAN_CLOCK_HZ / (bitrate * tPerBit);
-
-  if ((FDCAN_CLOCKHZ % (bitrate * tPerBit)) != 0){
+  // CubeMX left prescaler 16: 8,000,000 / (16 * 16) = 31,250 bit/s.
+  if ((FDCAN_CLOCK_HZ % (bitrate * TQ_PER_BIT)) != 0) {
     return -1;
   }
+  uint32_t prescaler = FDCAN_CLOCK_HZ / (bitrate * TQ_PER_BIT);
 
-  hfdcan1.Init.NominalPrescaler = 16; // what CubeMX set, what bitrate is it?
+  hfdcan1.Init.NominalPrescaler = prescaler;
   hfdcan1.Init.NominalTimeSeg1 = TSEG1;
   hfdcan1.Init.NominalTimeSeg2 = TSEG2;
   hfdcan1.Init.NominalSyncJumpWidth = TSEG2;
@@ -160,20 +153,29 @@ static void heartbeat(int loopback) {
 
 // [0..1] FSR mV, [2..7] accel X/Y/Z in mg, all int16 little endian
 static void construct_telemetry(message_header_t *msg) {
-  // TODO (part 4): fill msg->TxData_ from adc and imu using put_le16
-  (void)put_le16;
+  put_le16(&msg->TxData_[0], 0);   // force sensor not used
+  for (int i = 0; i < 3; i++) {
+    put_le16(&msg->TxData_[2 + 2 * i], (int16_t)(imu.acc_g[i] * 1000.0f));
+  }
 }
 
 // [0] mode (0 off, 1 on, 2 blink), [1..2] blink period in ms (uint16 LE)
 static void parse_led_command(uint8_t *data) {
-  // TODO (part 4): set led_mode and led_period_ms from data. Ignore a period
-  // of 0 (what would happen if you didn't?).
+  if (data[0] <= LED_BLINK) {
+    led_mode = (led_mode_t)data[0];
+  }
+
+  // A period of 0 would make "now - last_toggle >= period / 2" always true,
+  // so the LED would toggle every loop pass. Ignore it.
+  uint16_t period = (uint16_t)(data[1] | (data[2] << 8));
+  if (period != 0) {
+    led_period_ms = period;
+  }
 }
 
-// Partner's telemetry: only the Z acceleration is used
+// Partner's telemetry: only the Z acceleration is used (bytes 6..7)
 static void parse_partner_telemetry(uint8_t *data) {
-  // TODO (part 5): save the partner's Z acceleration into partner_acc_z_mg
-  (void)get_le16;
+  partner_acc_z_mg = get_le16(&data[6]);
 }
 
 static void update_led(void) {
@@ -211,8 +213,8 @@ static void telemetry(void) {
   uint8_t rx_data[8];
   uint32_t last_send = 0;
 
-  if (bmi323_init() != 0 || mcp3561_init(MCP3561_OSR_256) != 0) {
-    halt("IMU or ADC init failed, check labs 2 and 3");
+  if (bmi323_init() != 0) {
+    halt("IMU init failed, check lab 2");
   }
 
   // What we send
@@ -231,9 +233,11 @@ static void telemetry(void) {
   add_canrx_message(&rx_msgs, msg);
 
   if (LAB_4_PART == 5) {
-    // TODO (part 5): listen for the partner's telemetry the same way, with
-    // parse_partner_telemetry as the handler
-    (void)parse_partner_telemetry;
+    memset(&msg, 0, sizeof(msg));
+    msg.name = "partner";
+    msg.header.RxHeader_.Identifier = LAB_4_TELEMETRY_BASE + PARTNER_ID;
+    msg.handler.parse_message = parse_partner_telemetry;
+    add_canrx_message(&rx_msgs, msg);
   }
 
   if (configure_filter(&rx_msgs, &hfdcan1) != HAL_OK) {
@@ -247,9 +251,6 @@ static void telemetry(void) {
     if (HAL_GetTick() - last_send >= TELEMETRY_PERIOD_MS) {
       last_send = HAL_GetTick();
       bmi323_read(&imu);
-      if (mcp3561_data_ready()) {
-        mcp3561_read(&adc);
-      }
       send_cantx_messages(&hfdcan1, &tx_msgs, FAST);
       lab_4_bus.sent++;
       check_bus();
@@ -302,3 +303,4 @@ void lab_4(void) {
     telemetry();
   }
 }
+</document_content>
