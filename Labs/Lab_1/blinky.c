@@ -22,10 +22,15 @@ void blink_nonblocking() {
   // `static` keeps the value between calls
   static uint32_t last_toggle = 0;
 
-  // TODO (part 2): HAL_GetTick() returns milliseconds since reset. If at least
-  // BLINK_DURATION_DEFAULT ms have passed since last_toggle, toggle the LED
-  // and remember when you did. Otherwise do nothing and return.
-  (void)last_toggle;
+  uint32_t now = HAL_GetTick();
+
+  // Unsigned subtraction still gives the right answer when HAL_GetTick()
+  // wraps around past 0xFFFFFFFF (after ~49 days), so compare the
+  // difference, never "now >= last_toggle + period".
+  if (now - last_toggle >= BLINK_DURATION_DEFAULT) {
+    HAL_GPIO_TogglePin(Status_LED_GPIO_Port, Status_LED_Pin);
+    last_toggle = now;
+  }
 }
 
 void blink_timer_start(uint32_t toggle_hz) {
@@ -33,11 +38,24 @@ void blink_timer_start(uint32_t toggle_hz) {
   // Update rate   = counter clock / (Period + 1)
   // Both registers are 16 bits, so each must be 65535 or less.
   //
-  // TODO (part 3): pick values so the update rate equals toggle_hz. The
-  // values below are what CubeMX set up, what rate do they give?
-  // Hint: a 1 kHz counter clock makes Period easy to pick in milliseconds.
-  htim1.Init.Prescaler = 999;
-  htim1.Init.Period = 7999;
+  // CubeMX's values (Prescaler 999, Period 7999) give
+  //   8 MHz / 1000 = 8 kHz counter, 8 kHz / 8000 = 1 update per second,
+  // i.e. 1 toggle/s = a 0.5 Hz blink.
+  //
+  // Instead: Prescaler 7999 -> 8 MHz / 8000 = 1 kHz counter (1 count = 1 ms).
+  // Then Period + 1 = number of ms between toggles = 1000 / toggle_hz.
+  //   toggle_hz = 2  -> Period 499 (500 ms)
+  //   toggle_hz = 10 -> Period 99  (100 ms)
+  if (toggle_hz == 0) {
+    toggle_hz = 1; // avoid dividing by zero
+  } else if (toggle_hz > 1000) {
+    toggle_hz = 1000; // a 1 kHz counter can't go faster than 1 ms per toggle
+  }
+
+  HAL_TIM_Base_Stop_IT(&htim1); // in case it was already running
+
+  htim1.Init.Prescaler = (TIM1_CLOCK_HZ / 1000) - 1; // 7999
+  htim1.Init.Period = (1000 / toggle_hz) - 1;
 
   HAL_TIM_Base_Init(&htim1);
   HAL_TIM_Base_Start_IT(&htim1);
@@ -46,6 +64,6 @@ void blink_timer_start(uint32_t toggle_hz) {
 // Called from the TIM1 update interrupt every time the counter rolls over
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM1) {
-    // TODO (part 3): toggle the LED
+    HAL_GPIO_TogglePin(Status_LED_GPIO_Port, Status_LED_Pin);
   }
 }
