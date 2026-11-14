@@ -6,7 +6,9 @@
 #include <stdio.h>
 
 // Which part of the lab runs. Change this, rebuild, and flash.
-#define LAB_2_PART 1
+#ifndef LAB_2_PART
+#define LAB_2_PART 4
+#endif
 
 #define RAD_TO_DEG (180.0f / 3.14159265f)
 #define LEVEL_DEG 3.0f // closer to flat than this counts as level
@@ -23,9 +25,14 @@ float lab_2_roll, lab_2_pitch;
 static void scan_bus(void) {
   lab_2_found_count = 0;
 
-  // TODO (part 1): valid 7-bit addresses go from 0x08 to 0x77. Probe each
-  // one with i2c_probe, and add the ones that answer to lab_2_found (don't
-  // overflow it).
+  for (uint8_t i = 0; i < sizeof(lab_2_found); ++i) {
+    lab_2_found[i] = 0;
+  }
+  for (uint8_t address = 0x08; address <= 0x77; ++address) {
+    if (i2c_probe(address) == 0 && lab_2_found_count < sizeof(lab_2_found)) {
+      lab_2_found[lab_2_found_count++] = address;
+    }
+  }
 
   printf("I2C: scan done, %u found\r\n", lab_2_found_count);
 }
@@ -33,14 +40,23 @@ static void scan_bus(void) {
 // ---------------------------------------------------------------- part 2
 
 static void read_chip_id(void) {
-  // TODO (part 2): use the address part 1 found
+  scan_bus();
+  lab_2_chip_id = 0;
   bmi323_addr = 0;
-
-  if (bmi323_read_regs(BMI323_REG_CHIP_ID, &lab_2_chip_id, 1) != 0) {
-    printf("IMU: no answer at 0x%02x\r\n", bmi323_addr);
-    return;
+  for (uint8_t i = 0; i < lab_2_found_count; ++i) {
+    uint8_t address = lab_2_found[i];
+    if (address != BMI323_ADDR_SDO_LOW && address != BMI323_ADDR_SDO_HIGH) {
+      continue;
+    }
+    bmi323_addr = address;
+    if (bmi323_read_regs(BMI323_REG_CHIP_ID, &lab_2_chip_id, 1) == 0 &&
+        (lab_2_chip_id & 0xFF) == BMI323_CHIP_ID) {
+      printf("IMU: address 0x%02x, CHIP_ID = 0x%04x\r\n",
+             bmi323_addr, lab_2_chip_id);
+      return;
+    }
   }
-  printf("IMU: CHIP_ID = 0x%04x\r\n", lab_2_chip_id);
+  printf("IMU: BMI323 not found at 0x68 or 0x69\r\n");
 }
 
 // ---------------------------------------------------------------- part 4
@@ -50,24 +66,28 @@ static void read_chip_id(void) {
 static void compute_tilt(const bmi323_reading_t *r) {
   float ax = r->acc_g[0], ay = r->acc_g[1], az = r->acc_g[2];
 
-  // TODO (part 4): roll is rotation about X, pitch is rotation about Y.
-  // Lying flat, gravity is all on Z and both should be 0. Use atan2f (it
-  // returns radians) and the handout's diagram.
-  (void)ax;
-  (void)ay;
-  (void)az;
-  lab_2_roll = 0;
-  lab_2_pitch = 0;
+  lab_2_roll = atan2f(ay, az) * RAD_TO_DEG;
+  lab_2_pitch = atan2f(-ax, sqrtf(ay * ay + az * az)) * RAD_TO_DEG;
 }
 
-// LED solid when level, otherwise blinks faster the more the board tilts
+// Use elapsed time rather than delays so sensor sampling keeps running.
 static void show_level(void) {
+  static uint32_t last_toggle = 0;
+  uint32_t now = HAL_GetTick();
   float tilt = fmaxf(fabsf(lab_2_roll), fabsf(lab_2_pitch));
-
-  // TODO (part 4): if tilt is under LEVEL_DEG, turn the LED on. Otherwise
-  // blink it without blocking (like blink_nonblocking in lab 1), with a
-  // period that gets shorter as the tilt gets bigger.
-  (void)tilt;
+  if (tilt <= LEVEL_DEG) {
+    HAL_GPIO_WritePin(Status_LED_GPIO_Port, Status_LED_Pin, GPIO_PIN_SET);
+    last_toggle = now;
+    return;
+  }
+  uint32_t interval = (uint32_t)(500.0f / (1.0f + tilt / 10.0f));
+  if (interval < 50U) {
+    interval = 50U;
+  }
+  if ((uint32_t)(now - last_toggle) >= interval) {
+    HAL_GPIO_TogglePin(Status_LED_GPIO_Port, Status_LED_Pin);
+    last_toggle = now;
+  }
 }
 
 // ---------------------------------------------------------------- main
@@ -102,13 +122,14 @@ void lab_2(void) {
 
       if (LAB_2_PART == 3) {
         // printf can't do floats here, so print whole milli-units
-        printf("acc %5d %5d %5d mg | gyr %6d %6d %6d mdps\r\n",
+        printf("acc %5d %5d %5d mg | gyr %6d %6d %6d mdps | temp %d mC\r\n",
                (int)(lab_2_imu.acc_g[0] * 1000),
                (int)(lab_2_imu.acc_g[1] * 1000),
                (int)(lab_2_imu.acc_g[2] * 1000),
                (int)(lab_2_imu.gyr_dps[0] * 1000),
                (int)(lab_2_imu.gyr_dps[1] * 1000),
-               (int)(lab_2_imu.gyr_dps[2] * 1000));
+               (int)(lab_2_imu.gyr_dps[2] * 1000),
+               (int)(lab_2_imu.temp_c * 1000));
         HAL_Delay(100);
       } else {
         compute_tilt(&lab_2_imu);

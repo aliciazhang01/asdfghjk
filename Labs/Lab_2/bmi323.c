@@ -1,26 +1,22 @@
 #include "bmi323.h"
 #include "i2c.h"
 #include "main.h"
+#include <stddef.h>
 
-// ACC_CONF / GYR_CONF bit fields.
-// TODO (part 3): fill these in from the ACC_CONF and GYR_CONF register
-// descriptions in the datasheet. Shift each value to its bit position.
-#define CONF_ODR_100HZ 0x0         // bits 3:0, 100 Hz output data rate
-#define CONF_ACC_RANGE_8G 0x0      // bits 6:4, +/-8 g
-#define CONF_GYR_RANGE_2000DPS 0x0 // bits 6:4, +/-2000 dps
-#define CONF_MODE_NORMAL 0x0       // bits 14:12, normal (continuous) mode
+// BMI323 ACC_CONF/GYR_CONF: 100 Hz, +/-8 g, +/-2000 dps, normal mode.
+#define CONF_ODR_100HZ 0x8U
+#define CONF_ACC_RANGE_8G (0x2U << 4)
+#define CONF_GYR_RANGE_2000DPS (0x4U << 4)
+#define CONF_MODE_NORMAL (0x4U << 12)
 
 #define ACC_CONF (CONF_MODE_NORMAL | CONF_ACC_RANGE_8G | CONF_ODR_100HZ)
 #define GYR_CONF (CONF_MODE_NORMAL | CONF_GYR_RANGE_2000DPS | CONF_ODR_100HZ)
 
-// Sensitivity for the ranges above.
-// TODO (part 3): the raw value is a signed 16-bit number that spans the whole
-// range, so +32767 is about +8 g. Work out how many counts are one g and one
-// degree per second. The temperature formula is in the datasheet.
-#define ACC_LSB_PER_G 1.0f
-#define GYR_LSB_PER_DPS 1.0f
-#define TEMP_LSB_PER_C 1.0f
-#define TEMP_OFFSET_C 0.0f
+// Signed 16-bit full scale: 32768 / range. Temperature: raw / 512 + 23.
+#define ACC_LSB_PER_G 4096.0f
+#define GYR_LSB_PER_DPS 16.384f
+#define TEMP_LSB_PER_C 512.0f
+#define TEMP_OFFSET_C 23.0f
 
 #define ERR_CONF 0x0060 // ERR_REG: acc_conf_err | gyr_conf_err
 #define NO_DATA ((int16_t)0x8000) // value read before the first sample
@@ -30,25 +26,24 @@
 uint8_t bmi323_addr;
 
 int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
-  // Every I2C read returns 2 dummy bytes first, then each register low byte
-  // first
   uint8_t data[2 + 2 * MAX_READ];
-
-  if (count > MAX_READ) {
+  if (values == NULL || count == 0 || count > MAX_READ) {
     return -1;
   }
-
-  // TODO (part 2): read 2 + 2 * count bytes starting at reg with
-  // i2c_read_reg (return -1 if it fails), skip the 2 dummy bytes, and combine
-  // each pair of bytes into values[i]
-  (void)data;
-  return -1;
+  if (i2c_read_reg(bmi323_addr, reg, data, (uint8_t)(2 + 2 * count)) != 0) {
+    return -1;
+  }
+  // Discard the two dummy bytes, then decode little-endian register words.
+  for (uint8_t i = 0; i < count; ++i) {
+    values[i] = (uint16_t)data[2 + 2 * i] |
+                ((uint16_t)data[3 + 2 * i] << 8);
+  }
+  return 0;
 }
 
 int bmi323_write_reg(uint8_t reg, uint16_t value) {
-  // TODO (part 3): split value into 2 bytes, low byte first, and send them
-  // with i2c_write_reg
-  return -1;
+  const uint8_t data[2] = {(uint8_t)value, (uint8_t)(value >> 8)};
+  return i2c_write_reg(bmi323_addr, reg, data, sizeof(data));
 }
 
 // Tries both possible addresses and keeps the one with the right chip ID
@@ -93,17 +88,22 @@ int bmi323_init(void) {
 int bmi323_read(bmi323_reading_t *reading) {
   uint16_t raw[MAX_READ];
 
-  if (bmi323_read_regs(BMI323_REG_ACC_X, raw, MAX_READ) != 0) {
+  if (reading == NULL ||
+      bmi323_read_regs(BMI323_REG_ACC_X, raw, MAX_READ) != 0) {
     return -1;
   }
-  if ((int16_t)raw[0] == NO_DATA || (int16_t)raw[3] == NO_DATA) {
+  if ((int16_t)raw[0] == NO_DATA || (int16_t)raw[3] == NO_DATA ||
+      (int16_t)raw[6] == NO_DATA) {
     return -1;
   }
 
-  // raw[0..2] = ACC X/Y/Z, raw[3..5] = GYR X/Y/Z, raw[6] = TEMP
-  //
-  // TODO (part 3): fill in every field of *reading. The registers are signed
-  // (two's complement), so cast to int16_t before converting to units.
-  (void)reading;
+  for (uint8_t i = 0; i < 3; ++i) {
+    reading->acc_raw[i] = (int16_t)raw[i];
+    reading->gyr_raw[i] = (int16_t)raw[i + 3];
+    reading->acc_g[i] = reading->acc_raw[i] / ACC_LSB_PER_G;
+    reading->gyr_dps[i] = reading->gyr_raw[i] / GYR_LSB_PER_DPS;
+  }
+  reading->temp_raw = (int16_t)raw[6];
+  reading->temp_c = reading->temp_raw / TEMP_LSB_PER_C + TEMP_OFFSET_C;
   return 0;
 }

@@ -119,8 +119,8 @@ int main(void) {
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
-  lab_1();
-  // lab_2();
+  // lab_1();
+  lab_2();
   // lab_3();
   // lab_4();
 

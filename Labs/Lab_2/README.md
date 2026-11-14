@@ -115,3 +115,58 @@ pitch = atan2(-ax, sqrt(ay² + az²))
 - **Complementary filter:** track angle by integrating the gyro (`angle += rate * dt`), and every step pull it slightly toward the accelerometer's angle: `angle = 0.98 * (angle + rate * dt) + 0.02 * accel_angle`. Compare it to part 4 while shaking.
 - **Tap detection:** blink the LED once when the board is tapped. Look for a short spike in the acceleration size.
 - Read the datasheet's FIFO section and read a batch of samples at once instead of one at a time.
+
+## Running the completed parts
+
+The implementation defaults to `LAB_2_PART 4` (bubble level). The application
+calls `lab_2()` in the `USER CODE BEGIN 2` section of `Core/Src/main.c`.
+Change `LAB_2_PART` at the top of `lab_2.c` to 1, 2, 3, or 4, then rebuild
+and flash after each change. Parts 1 and 2 finish their check and wait forever;
+parts 3 and 4 run continuously. No optional extensions are enabled.
+
+- **Part 1:** scan 0x08 through 0x77. The Watch array stores up to eight
+  responding addresses without overflowing. Expect the BMI323 at 0x68 or 0x69.
+- **Part 2:** scan again, then verify the chip ID at a detected BMI323 address.
+  No manually guessed address is required. Watch `lab_2_chip_id` and
+  `bmi323_addr`; the chip-ID low byte must be 0x43.
+- **Part 3:** print acceleration in mg, angular rate in mdps, and temperature
+  in millidegrees Celsius every 100 ms. Divide printed values by 1000 to get
+  g, degrees/second, and degrees Celsius. The Watch structure also exposes
+  the raw words and converted floating-point values.
+- **Part 4:** watch `lab_2_roll` and `lab_2_pitch`. The LED stays on when both
+  angles are within 3 degrees of flat; otherwise it toggles at intervals
+  between 50 and 500 ms, with shorter intervals at larger tilts. The LED
+  routine uses elapsed tick time and never calls `HAL_Delay`.
+
+### Configuration and calculations
+
+Both sensors use ODR code 0x8 (100 Hz) and mode code 0x4 (normal).
+The accelerometer range code is 0x2 and gyro range code is 0x4, yielding
+`ACC_CONF = 0x4028` and `GYR_CONF = 0x4048`.
+
+- Acceleration: `32768 / 8 = 4096` counts/g; `acc_g = signed_raw / 4096`.
+- Angular rate: `32768 / 2000 = 16.384` counts/(degree/second).
+- Temperature: `temp_c = signed_raw / 512 + 23`.
+- Roll: `atan2f(ay, az) * 180 / pi`.
+- Pitch: `atan2f(-ax, sqrtf(ay*ay + az*az)) * 180 / pi`.
+
+Reference: [Bosch BMI323 datasheet](https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmi323-ds000.pdf),
+ACC_CONF, GYR_CONF, and TEMP_DATA register descriptions.
+
+### Hardware observations still to record
+
+The blank measurement table above is intentionally left for actual board
+readings, rounded to 0.1 g. No hardware measurements have been made by the
+software tests. Use part 3, hold the board still in each of the six positions,
+and record `lab_2_imu.acc_g[0..2]` (or divide the printed mg values by 1000).
+
+Chips-up and chips-down should be approximately (0, 0, +1) and (0, 0, -1)
+under the README's mounting convention. On each edge, one horizontal axis
+should approach +1 or -1 g. Which edge corresponds to X or Y depends on the
+sensor's mounting and the chosen definition of the board's front; determine
+that from the measurements rather than guessing.
+
+To label an axis, orient the board so its reading is about +1 g: that positive
+axis points upward in that pose. Transfer the arrow to the board or its photo.
+Also check near-zero stationary gyro values, a changing Z gyro reading when
+spinning flat, plausible die temperature, and the flat/tilted LED behavior.
