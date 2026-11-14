@@ -120,9 +120,9 @@ int main(void) {
   /* USER CODE BEGIN 2 */
 
   // lab_1();
-  lab_2();
+  // lab_2();
   // lab_3();
-  // lab_4();
+  lab_4();
 
   /* USER CODE END 2 */
 
