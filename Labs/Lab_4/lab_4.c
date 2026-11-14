@@ -129,10 +129,6 @@ static void heartbeat(int loopback) {
   while (1) {
     uint32_t tick = HAL_GetTick();
 
-    // TODO (part 2): put counter in byte 0 (then increment it) and tick in
-    // bytes 4..7, little endian. Then queue the frame with
-    // HAL_FDCAN_AddMessageToTxFifoQ and count it in lab_4_bus.sent if that
-    // returns HAL_OK.
     tx_data[0] = counter;
     counter++;
     tx_data[4] = (uint8_t)tick;
@@ -155,6 +151,7 @@ static void heartbeat(int loopback) {
         lab_4_bus.mismatched++;
       }
     }
+
     check_bus();
   }
 }
