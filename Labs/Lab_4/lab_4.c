@@ -133,9 +133,16 @@ static void heartbeat(int loopback) {
     // bytes 4..7, little endian. Then queue the frame with
     // HAL_FDCAN_AddMessageToTxFifoQ and count it in lab_4_bus.sent if that
     // returns HAL_OK.
-    (void)tick;
-    (void)counter;
-    (void)header;
+    tx_data[0] = counter;
+    counter++;
+    tx_data[4] = (uint8_t)tick;
+    tx_data[5] = (uint8_t)(tick >> 8);
+    tx_data[6] = (uint8_t)(tick >> 16);
+    tx_data[7] = (uint8_t)(tick >> 24);
+
+    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &header, tx_data) == HAL_OK) {
+      lab_4_bus.sent++;
+    }
 
     HAL_Delay(100);
 

@@ -6,10 +6,10 @@
 // ACC_CONF / GYR_CONF bit fields.
 // TODO (part 3): fill these in from the ACC_CONF and GYR_CONF register
 // descriptions in the datasheet. Shift each value to its bit position.
-#define CONF_ODR_100HZ 0x0         // bits 3:0, 100 Hz output data rate
-#define CONF_ACC_RANGE_8G 0x0      // bits 6:4, +/-8 g
-#define CONF_GYR_RANGE_2000DPS 0x0 // bits 6:4, +/-2000 dps
-#define CONF_MODE_NORMAL 0x0       // bits 14:12, normal (continuous) mode
+#define CONF_ODR_100HZ 0x8         // bits 3:0, 100 Hz output data rate
+#define CONF_ACC_RANGE_8G (0x2 << 4)      // bits 6:4, +/-8 g
+#define CONF_GYR_RANGE_2000DPS (0x4 << 4) // bits 6:4, +/-2000 dps
+#define CONF_MODE_NORMAL (0x4 << 12) // bits 14:12, normal (continuous) mode
 
 #define ACC_CONF (CONF_MODE_NORMAL | CONF_ACC_RANGE_8G | CONF_ODR_100HZ)
 #define GYR_CONF (CONF_MODE_NORMAL | CONF_GYR_RANGE_2000DPS | CONF_ODR_100HZ)
@@ -18,10 +18,10 @@
 // TODO (part 3): the raw value is a signed 16-bit number that spans the whole
 // range, so +32767 is about +8 g. Work out how many counts are one g and one
 // degree per second. The temperature formula is in the datasheet.
-#define ACC_LSB_PER_G 1.0f
-#define GYR_LSB_PER_DPS 1.0f
-#define TEMP_LSB_PER_C 1.0f
-#define TEMP_OFFSET_C 0.0f
+#define ACC_LSB_PER_G 4096.0f
+#define GYR_LSB_PER_DPS 16.384f
+#define TEMP_LSB_PER_C 512.0f
+#define TEMP_OFFSET_C 23.0f
 
 #define ERR_CONF 0x0060 // ERR_REG: acc_conf_err | gyr_conf_err
 #define NO_DATA ((int16_t)0x8000) // value read before the first sample
@@ -66,10 +66,10 @@ int bmi323_read_regs(uint8_t reg, uint16_t *values, uint8_t count) {
 int bmi323_write_reg(uint8_t reg, uint16_t value) {
   // TODO (part 3): split value into 2 bytes, low byte first, and send them
   // with i2c_write_reg
-  uint8_t low = value;
-  uint8_t low_byte = value >> 8;
-  uint8_t data[2] = {low_byte, high_byte};
-  int result = i2c_write_reg(bmi323_addr,reg, data,sizeof(data));
+  uint8_t low = value & 0xFF;
+  uint8_t high = value >> 8;
+  uint8_t data[2] = {low, high};
+  int result = i2c_write_reg(bmi323_addr,reg, data,2);
   if(result != 0){
     return -1;
   }
@@ -116,19 +116,32 @@ int bmi323_init(void) {
 }
 
 int bmi323_read(bmi323_reading_t *reading) {
-  uint16_t raw[MAX_READ];
+  uint16_t raw[MAX_READ];
 
-  if (bmi323_read_regs(BMI323_REG_ACC_X, raw, MAX_READ) != 0) {
-    return -1;
-  }
-  if ((int16_t)raw[0] == NO_DATA || (int16_t)raw[3] == NO_DATA) {
-    return -1;
-  }
+  if (bmi323_read_regs(BMI323_REG_ACC_X, raw, MAX_READ) != 0) {
+    return -1;
+  }
+  if ((int16_t)raw[0] == NO_DATA || (int16_t)raw[3] == NO_DATA) {
+    return -1;
+  }
 
-  // raw[0..2] = ACC X/Y/Z, raw[3..5] = GYR X/Y/Z, raw[6] = TEMP
-  //
-  // TODO (part 3): fill in every field of *reading. The registers are signed
-  // (two's complement), so cast to int16_t before converting to units.
-  (void)reading;
-  return 0;
+  for (int i = 0; i < 3; i++) {
+    reading->acc_raw[i] = (int16_t)raw[i];
+    reading->gyr_raw[i] = (int16_t)raw[i + 3];
+
+    reading->acc_g[i] = reading->acc_raw[i] / ACC_LSB_PER_G;
+    reading->gyr_dps[i] = reading->gyr_raw[i] / GYR_LSB_PER_DPS;
+  }
+
+  reading->temp_raw = (int16_t)raw[6];
+  reading->temp_c =
+      reading->temp_raw / TEMP_LSB_PER_C + TEMP_OFFSET_C;
+
+  return 0;
+
+  // raw[0..2] = ACC X/Y/Z, raw[3..5] = GYR X/Y/Z, raw[6] = TEMP
+  //
+  // TODO (part 3): fill in every field of *reading. The registers are signed
+  // (two’s complement), so cast to int16_t before converting to units.
+  return 0;
 }

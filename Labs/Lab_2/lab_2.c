@@ -59,21 +59,55 @@ static void compute_tilt(const bmi323_reading_t *r) {
   // TODO (part 4): roll is rotation about X, pitch is rotation about Y.
   // Lying flat, gravity is all on Z and both should be 0. Use atan2f (it
   // returns radians) and the handout's diagram.
-  (void)ax;
-  (void)ay;
-  (void)az;
-  lab_2_roll = 0;
-  lab_2_pitch = 0;
+  float ax = r->acc_g[0];
+  float ay = r->acc_g[1];
+  float az = r->acc_g[2];
+
+  lab_2_roll = atan2f(ay, az) * RAD_TO_DEG;
+
+  lab_2_pitch =
+      atan2f(-ax, sqrtf(ay * ay + az * az)) * RAD_TO_DEG;
 }
 
 // LED solid when level, otherwise blinks faster the more the board tilts
 static void show_level(void) {
-  float tilt = fmaxf(fabsf(lab_2_roll), fabsf(lab_2_pitch));
+  static uint32_t last_toggle = 0;
+  uint32_t now = HAL_GetTick();
 
-  // TODO (part 4): if tilt is under LEVEL_DEG, turn the LED on. Otherwise
-  // blink it without blocking (like blink_nonblocking in lab 1), with a
-  // period that gets shorter as the tilt gets bigger.
-  (void)tilt;
+  float tilt = fmaxf(fabsf(lab_2_roll), fabsf(lab_2_pitch));
+
+  if (tilt <= LEVEL_DEG) {
+    HAL_GPIO_WritePin(
+        Status_LED_GPIO_Port, Status_LED_Pin, GPIO_PIN_SET);
+
+    last_toggle = now;
+    return;
+  }
+
+  // Larger tilt means less time between LED toggles.
+  uint32_t interval = (uint32_t)(500.0f / (1.0f + tilt / 10.0f));
+
+  if (interval < 50) {
+    interval = 50;
+  }
+
+  if ((uint32_t)(now - last_toggle) >= interval) {
+    HAL_GPIO_TogglePin(Status_LED_GPIO_Port, Status_LED_Pin);
+    last_toggle = now;
+  }
+}
+
+  // Larger tilt means less time between LED toggles.
+  uint32_t interval = (uint32_t)(500.0f / (1.0f + tilt / 10.0f));
+
+  if (interval < 50) {
+    interval = 50;
+  }
+
+  if ((uint32_t)(now - last_toggle) >= interval) {
+    HAL_GPIO_TogglePin(Status_LED_GPIO_Port, Status_LED_Pin);
+    last_toggle = now;
+  }
 }
 
 // ---------------------------------------------------------------- main
